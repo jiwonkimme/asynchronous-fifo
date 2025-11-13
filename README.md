@@ -18,7 +18,7 @@
 
 이 문제를 해결하기 위해 강의 자료에서 제시하는 아키텍처를 충실히 따랐습니다.
 
-![Asynchronous FIFO Architecture](/async-fifo/Async_FIFO_Architecture.png)
+![Asynchronous FIFO Architecture](Async_FIFO_Architecture.png)
 
 ### 3.1. 2-FF Synchronizer (2-FlipFlop 동기화기)
 
@@ -126,7 +126,7 @@ This can cause the flip-flop's output to enter an unstable state (Metastable Sta
 
 To resolve this, the implementation faithfully follows the "Overall Architecture" presented in the lecture material.
 
-![Asynchronous FIFO Architecture](/async-fifo/Async_FIFO_Architecture.png)
+![Asynchronous FIFO Architecture](Async_FIFO_Architecture.png)
 
 ### 3.1. 2-FF Synchronizer (2-FlipFlop Synchronizer)
 
