@@ -106,7 +106,7 @@ end
 ---
 ---
 
-# Asynchronous FIFO Verilog Implementation (English Ver.)
+# Asynchronous FIFO Verilog Implementation
 
 ## 1. Project Overview
 
