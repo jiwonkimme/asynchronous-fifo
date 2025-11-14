@@ -151,6 +151,10 @@ iverilog -o tb_fifo ../src/async_fifo.v tb_async_fifo.v
 vvp tb_fifo
 ```
 
+### 6.4 시뮬레이션 결과
+
+![Async FIFO waveform](Async_FIFO_waveform.png)
+
 ---
 ---
 
@@ -306,3 +310,7 @@ iverilog -o tb_fifo ../src/async_fifo.v tb_async_fifo.v
 # Execute the compiled simulation file using vvp
 vvp tb_fifo
 ```
+
+### 6.4 Simulation Result
+
+![Async FIFO waveform](Async_FIFO_waveform.png)
