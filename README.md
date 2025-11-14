@@ -20,7 +20,7 @@
 
 ![Asynchronous FIFO Architecture](Async_FIFO_Architecture.png)
 
-### 3.1. 2-FF Synchronizer (2-FlipFlop 동기화기)
+### 3.1. 2-FF Synchronizer
 
 Metastability가 발생하더라도, 한 클럭 주기(`Tc`) 안에 안정적인 상태로 회복(Resolve)할 시간을 벌어주기 위해 **2개의 플립플롭을 직렬로 연결한 동기화기**를 사용합니다.
 
@@ -40,11 +40,14 @@ FIFO의 `full`/`empty`를 판단하려면 주소 포인터(Write Pointer, Read P
 
 ### 4.1. ⚠️ Non-Power-of-2 `DEPTH` 문제
 
-현재 구현된 포인터 래핑(wrapping) 로직(`wptr == DEPTH - 1`)은 **`DEPTH`가 2의 거듭제곱(Power of 2)이 아닐 경우** 오작동을 일으킵니다.
+현재 코드는 `DEPTH`가 2의 거듭제곱이 아닐 때의 `full`/`empty` 문제를 해결하기 위해 포인터 비트 폭을 `PTR_WIDTH = PADDR + 1`로 확장하는 표준적인 방식을 적용했습니다.
 
-* **증상:** `DEPTH`가 7, 10 등 2의 거듭제곱이 아닐 때, FIFO 용량이 `DEPTH - 1`로 줄어드는 버그가 발생합니다. (예: `DEPTH=7`일 때 6개만 저장하고 `full`이 됨)
-* **원인:** `full` 신호는 `wptr_gray_next`와 `rptr_gray_final`을 비교합니다. `DEPTH-1`에서 `0`으로 래핑되는 `wptr_next`의 Gray 값은 `0`이 됩니다. 이는 `rptr_gray_final`이 `0`인 초기 상태(Empty)와 동일하게 인식되어 `full`로 잘못 판단됩니다.
-* **해결책:** 이 문제를 근본적으로 해결하려면 포인터의 비트 폭을 `PADDR+1`로 1비트 늘려 MSB를 래핑 감지에 사용하는 표준적인 방법으로 수정해야 합니다.
+하지만, **포인터 래핑(wrapping) 로직**이 `DEPTH` 값을 고려하지 않고 구현되어 있어 **`Non-Power-of-2 DEPTH`를 지원하지 못하는 치명적인 버그**가 발생합니다.
+
+* **증상:** `parameter DEPTH=7`과 같이 2의 거듭제곱이 아닌 값으로 설정할 경우, `wptr`가 `7`이 되는 시점에 `ram[wptr[PADDR-1:0]]` (즉, `ram[7]`)에 접근하려 시도합니다.
+* **문제:** `ram`은 `reg [WIDTH-1:0] ram [DEPTH-1:0]` (즉, `[6:0]`)으로 선언되었기 때문에, `ram[7]`에 접근하는 것은 **메모리 범위를 벗어난 접근(out-of-bounds access)**이며 시뮬레이션 오류 또는 합성(synthesis) 실패를 유발합니다.
+* **원인:** `assign wptr_next = wptr + 1;`로 구현된 포인터 증가 로직 때문입니다. 이 로직은 `DEPTH` 값과 관계없이 `wptr`의 하위 `PADDR` 비트(즉, `wptr[PADDR-1:0]`)가 `0`부터 `2^PADDR - 1`까지 순환하도록 만듭니다. (예: `DEPTH=7`이면 `PADDR=3`이므로 `0~7`까지 순환)
+* **해결책:** 이 문제를 근본적으로 해결하려면 `assign wptr_next = wptr + 1;` 로직을 `DEPTH` 값을 고려하는 `always @(*)` 블록으로 수정해야 합니다. 즉, `wptr`의 하위 비트(`wptr[PADDR-1:0]`)가 `DEPTH-1`에 도달하면, 다음 `wptr_next` 값은 MSB(`wptr[PADDR]`)가 반전되고 하위 비트는 `0`이 되도록 명시적으로 래핑 로직을 구현해야 합니다. (`rptr_next`도 동일)
 
 ### 4.2. FWFT (First-Word Fall-Through) 지원 여부
 
@@ -103,6 +106,51 @@ end
 | `dout` | Output [`WIDTH-1`:0] | 읽기 데이터 | `CLK_R` |
 | `empty` | Output | FIFO Empty 플래그 | `CLK_R` |
 
+## 6. 시뮬레이션 방법 (Icarus Verilog)
+
+본 프로젝트의 검증은 오픈소스 Verilog 시뮬레이터인 Icarus Verilog (`iverilog`)를 사용하여 진행합니다.
+
+### 6.1. 디렉터리 구조
+
+시뮬레이션의 편의성과 코드 분리를 위해 디렉터리를 다음과 같이 구성했습니다.
+
+* `src/`: 실제 디자인 Verilog 모듈 (예: `async_fifo.v`)
+* `sim/`: 테스트벤치 (예: `tb_async_fifo.v`) 및 시뮬레이션 실행 스크립트 (`run.sh`)
+
+### 6.2. 시뮬레이션 실행
+
+`sim` 디렉터리에 있는 `run.sh` 셸 스크립트를 통해 컴파일 및 시뮬레이션을 한 번에 실행할 수 있습니다.
+
+> **[참고]** 스크립트 실행 권한이 없는 경우, 터미널에서 `chmod +x run.sh` 명령을 실행하여 권한을 먼저 부여해야 합니다.
+
+```bash
+# 1. 시뮬레이션 디렉터리로 이동
+cd sim
+
+# 2. run.sh 스크립트 실행
+./run.sh
+
+# 3. (선택) 파형(VCD) 확인
+# 시뮬레이션이 완료되면 (테스트벤치 설정에 따라) dump.vcd 파일이 생성됩니다.
+# gtkwave dump.vcd
+```
+
+### 6.3. run.sh 스크립트 예시
+
+run.sh 파일은 iverilog 컴파일 명령어와 vvp 실행 명령어로 구성됩니다.
+
+```Bash
+
+#!/bin/bash
+
+# iverilog를 사용하여 소스 파일과 테스트벤치를 컴파일합니다.
+# -o tb_fifo : 출력될 시뮬레이션 실행 파일의 이름
+iverilog -o tb_fifo ../src/async_fifo.v tb_async_fifo.v
+
+# 컴파일된 tb_fifo 파일을 vvp 런타임으로 실행합니다.
+vvp tb_fifo
+```
+
 ---
 ---
 
@@ -148,11 +196,14 @@ Therefore, even if there is a delay during synchronization, the receiving side w
 
 ### 4.1. ⚠️ Non-Power-of-2 `DEPTH` Issue
 
-The current pointer wrapping logic (`wptr == DEPTH - 1`) **will malfunction if `DEPTH` is not a power of 2** (e.g., 7, 10, 12).
+The current code applies the standard method of expanding the pointer bit width to `PTR_WIDTH = PADDR + 1`. This correctly solves the `full`/`empty` comparison issues associated with non-power-of-2 depths.
 
-* **Symptom:** When `DEPTH` is not a power of 2, the FIFO's capacity is incorrectly reduced to `DEPTH - 1`. (e.g., for `DEPTH=7`, it will signal `full` after only 6 items are written).
-* **Cause:** The `full` logic compares `wptr_gray_next` with `rptr_gray_final`. When `wptr_next` wraps from `DEPTH-1` to `0`, its Gray code becomes `0`. This is identical to the `rptr_gray_final` value of `0` in the initial empty state, causing the logic to incorrectly flag the FIFO as `full`.
-* **Solution:** The standard solution is to increase the pointer width by one bit (to `PADDR+1`) and use the MSB to detect wrapping, which requires a change in the `full`/`empty` comparison logic.
+However, a **critical bug** still exists because the **pointer wrapping logic** is implemented without considering the `DEPTH` value, making it non-functional for `Non-Power-of-2 DEPTH`.
+
+* **Symptom:** If `parameter DEPTH=7` (a non-power-of-2 value), the pointer `wptr` will eventually reach `7`. At this point, the code attempts to access `ram[wptr[PADDR-1:0]]` (i.e., `ram[7]`).
+* **Problem:** Since the `ram` is declared as `reg [WIDTH-1:0] ram [DEPTH-1:0]` (i.e., `[6:0]`), this is an **out-of-bounds memory access**, which will cause simulation errors or synthesis failure.
+* **Cause:** The cause is the `assign wptr_next = wptr + 1;` logic. This implementation forces the lower `PADDR` bits of `wptr` (i.e., `wptr[PADDR-1:0]`) to cycle from `0` to `2^PADDR - 1` regardless of the actual `DEPTH`. (e.g., for `DEPTH=7`, `PADDR=3`, so the address cycles from `0` to `7`).
+* **Solution:** To fix this, the `assign wptr_next = wptr + 1;` logic must be replaced with a combinational `always @(*)` block. This block must check if the address bits (`wptr[PADDR-1:0]`) have reached `DEPTH-1`. If so, it must explicitly implement the wrap-around logic (inverting the MSB `wptr[PADDR]` and resetting the lower bits to `0`). (The same applies to `rptr_next`.)
 
 ### 4.2. FWFT (First-Word Fall-Through) Support
 
@@ -210,3 +261,48 @@ end
 | `read_en` | Input | Read Enable | `CLK_R` |
 | `dout` | Output [`WIDTH-1`:0] | Data Out | `CLK_R` |
 | `empty` | Output | FIFO Empty Flag | `CLK_R` |
+
+## 6. Simulation (Icarus Verilog)
+
+Verification for this project is conducted using Icarus Verilog (`iverilog`), an open-source Verilog simulator.
+
+### 6.1. Directory Structure
+
+For clarity and ease of simulation, the project files are organized into the following directories:
+
+* `src/`: Contains the synthesizable design modules (e.g., `async_fifo.v`).
+* `sim/`: Contains the testbench (e.g., `tb_async_fifo.v`) and the simulation execution script (`run.sh`).
+
+### 6.2. Running the Simulation
+
+The `run.sh` shell script, located in the `sim` directory, compiles and runs the simulation.
+
+> **Note:** If you do not have execute permissions for the script, you must first grant them by running `chmod +x run.sh` in your terminal.
+
+```bash
+# 1. Navigate to the simulation directory
+cd sim
+
+# 2. Execute the run script
+./run.sh
+
+# 3. (Optional) View Waveforms
+# Upon completion, the simulation (if configured in the testbench) 
+# will generate a VCD file (e.g., dump.vcd).
+# gtkwave dump.vcd
+```
+
+### 6.3. Example run.sh Script
+
+The run.sh script typically contains the iverilog compile command and the vvp runtime command.
+
+```Bash
+#!/bin/bash
+
+# Compile the source files and testbench using iverilog
+# -o tb_fifo : Specifies the name of the output compiled executable
+iverilog -o tb_fifo ../src/async_fifo.v tb_async_fifo.v
+
+# Execute the compiled simulation file using vvp
+vvp tb_fifo
+```
