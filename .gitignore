@@ -1,2 +1,4 @@
 # Ignore Lecture Note
 *.pdf
+*.vvp
+*.vcd
