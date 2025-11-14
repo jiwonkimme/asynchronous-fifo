@@ -15,13 +15,15 @@ module fifo #(
 );
 
 //Wire and reg Setting
-	reg [PADDR-1:0] wptr, rptr;
-	wire [PADDR-1:0] wptr_next, rptr_next;
-	wire [PADDR-1:0] wptr_gray, rptr_gray, wptr_gray_next;
-	wire full_flag, empty_flag;
-	wire write_valid, read_valid;
-	reg [PADDR-1:0] rptr_gray_sync1, rptr_gray_final;
-	reg [PADDR-1:0] wptr_gray_sync1, wptr_gray_final;
+	parameter PTR_WIDTH = PADDR + 1;
+
+	reg [PTR_WIDTH-1:0] wptr, rptr;
+    wire [PTR_WIDTH-1:0] wptr_next, rptr_next;
+    wire [PTR_WIDTH-1:0] wptr_gray, rptr_gray;
+    wire full_flag, empty_flag;
+    wire write_valid, read_valid;
+    reg [PTR_WIDTH-1:0] rptr_gray_sync1, rptr_gray_final;
+    reg [PTR_WIDTH-1:0] wptr_gray_sync1, wptr_gray_final;
 //RAM FIFO Buffer 
 	reg [WIDTH-1:0] ram [DEPTH-1:0];
 	reg [WIDTH-1:0] rdata;
@@ -30,7 +32,7 @@ module fifo #(
 //RAM (WRITE) Write Based Setting
 	always @(posedge CLK_W) begin
 		if (write_valid) begin
-			ram[wptr] <= din;
+			ram[wptr[PADDR-1:0]] <= din;
 		end 
 	end
 
@@ -45,8 +47,7 @@ module fifo #(
 
 // Binary -> Gray Code : gray_value = (counter >> 1) ^ counter;
 	assign wptr_gray = (wptr >> 1) ^ wptr;
-	assign wptr_next = (wptr == DEPTH - 1) ? 0 : wptr + 1;
-	assign wptr_gray_next = (wptr_next >> 1) ^ wptr_next;
+	assign wptr_next = wptr + 1;
 
 // R -> W Synchronizer (2-FF) (pipeline)
 	always @(posedge CLK_W or negedge rstn) begin
@@ -59,7 +60,9 @@ module fifo #(
 		end
 	end
 // Full Calculation -> Synchronizer value(e.g. comparison between wptr <-> rptr_gray_final)
-	assign full_flag = (wptr_gray_next == rptr_gray_final);  
+	assign full_flag = (wptr_gray[PADDR]     != rptr_gray_final[PADDR]) &&
+                       (wptr_gray[PADDR-1] != rptr_gray_final[PADDR-1]) &&
+                       (wptr_gray[PADDR-2:0] == rptr_gray_final[PADDR-2:0]);
 	assign write_valid = write_en && !full_flag;
 	assign full = full_flag;
 
@@ -69,9 +72,9 @@ module fifo #(
 		if (!rstn) begin
 			rdata <= 0;
 		end else if (read_valid) begin
-			rdata <= ram[rptr_next];
+			rdata <= ram[rptr_next[PADDR-1:0]];
 		end else if (!empty_flag) begin
-			rdata <= ram[rptr];
+			rdata <= ram[rptr[PADDR-1:0]];
 		end
 	end
 
@@ -86,7 +89,7 @@ module fifo #(
 
 // Binary -> Gray Code
 	assign rptr_gray = (rptr >> 1) ^ rptr;
-	assign rptr_next = (rptr == DEPTH - 1) ? 0 : rptr + 1;
+	assign rptr_next = rptr + 1;
 
 // W -> R Synchronizer (2-FF)
 	always @(posedge CLK_R or negedge rstn) begin
